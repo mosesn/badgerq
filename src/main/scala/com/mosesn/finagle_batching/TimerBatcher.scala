@@ -4,61 +4,39 @@ import com.twitter.finagle.{Service, ServiceFactory}
 import com.twitter.util.{Await, Duration, Future, Promise, Time, Timer}
 
 class TimerBatcher[Req, Rep](duration: Duration, timer: Timer) extends Batcher[Req, Rep] {
-  val mkService = (factory: ServiceFactory[Seq[Req], Seq[Rep]]) => new Service[Req, Rep] {
-    @volatile var stopped = false
-    var seq = Seq.empty[(Req, Promise[Rep])]
+  override def apply(factory: ServiceFactory[Seq[Req], Seq[Rep]]): ServiceFactory[Req, Rep] =
+    ServiceFactory.const(new TimerBatchingService(factory))
+}
 
-    def apply(req: Req): Future[Rep] = {
-      val p = Promise[Rep]
-      if (stopped) {
-        return Future.exception(new Exception("failed"))
-      }
-      synchronized {
-        seq :+= (req, p)
-      }
-      p
+class TimerBatchingService[Req, Rep](
+  factory: ServiceFactory[Seq[Req], Seq[Rep]],
+  duration: Duration,
+  timer: Timer
+) extends BatchingService[Req, Rep](factory) {
+  var seq = Seq.empty[(Req, Promise[Rep])]
+
+  def injectSeq(req: Req): Future[Rep] = {
+    val p = Promise[Rep]
+    synchronized {
+      seq :+= (req, p)
     }
-
-    override def close(deadline: Time): Future[Unit] = {
-      stopped = true
-      Future.Done
-    }
-
-    def fulfilBatch(svc: Service[Seq[Req], Seq[Rep]], pairs: Seq[(Req, Promise[Rep])]): Future[Unit] = {
-      (svc(pairs map (_._1)) onSuccess { results =>
-        if (results.size == pairs.size) {
-          results.zip(pairs).map({ case (result, (_, p)) =>
-            p.setValue(result)
-          })
-        } else {
-          for ((_, p) <- pairs) yield {
-            p.setException(new Exception("failed"))
-          }
-        }
-      } onFailure { exc =>
-        for ((_, p) <- pairs) {
-          p.setException(exc)
-        }
-      }).unit
-    }
-
-    def loop() {
-      timer.schedule(duration) {
-        val old = synchronized {
-          val tmp = seq
-          seq = Seq.empty[(Req, Promise[Rep])]
-          tmp
-        }
-        val svc = factory.toService
-        Await.result(fulfilBatch(svc, old))
-        if (!stopped) {
-          loop()
-        }
-      }
-    }
-
-    loop()
+    p
   }
 
-  override def apply(factory: ServiceFactory[Seq[Req], Seq[Rep]]): ServiceFactory[Req, Rep] = ServiceFactory.const(mkService(factory))
+  def loop() {
+    timer.schedule(duration) {
+      val old = synchronized {
+        val tmp = seq
+        seq = Seq.empty[(Req, Promise[Rep])]
+        tmp
+      }
+      val svc = factory.toService
+      Await.result(fulfilBatch(svc, old))
+      if (!stopped) {
+        loop()
+      }
+    }
+  }
+
+  loop()
 }
