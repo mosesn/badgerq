@@ -4,33 +4,28 @@ import com.twitter.finagle.{Service, ServiceFactory}
 import com.twitter.util.{Duration, Future, Promise, Time, Timer}
 
 class SizeBatcher[Req, Rep](size: Int) extends Batcher[Req, Rep] {
-  override def apply(factory: ServiceFactory[Seq[Req], Seq[Rep]]): ServiceFactory[Req, Rep] = ServiceFactory.const(mkService(factory))
+  override def apply(factory: ServiceFactory[Seq[Req], Seq[Rep]]): ServiceFactory[Req, Rep] = ServiceFactory.const(new SizeBatchingService(size, factory))
 }
 
-class SizeBatchingService(
-  factory: ServiceFactory[Seq[Req], Seq[Rep]],
-  size: Int
-) extends BatchingService[Req, Rep](factory) {
-  var seq = Seq.empty[(Req, Promise[Rep])]
+class SizeBatchingService[Req, Rep](val size: Int, factory: ServiceFactory[Req, Rep]) extends BatchingService[Req, Rep] with SizeBatching
 
-  def injectSeq(req: Req): Promise[Rep] = {
-    val p = Promise[Rep]
-    val oldMaybe = synchronized {
-      seq :+= (req, p)
-      if (seq.size > size) {
-        val tmp = seq
+trait SizeBatching extends QueueingDiscipline {
+  val size: Int
 
-        seq = Seq.empty[(Req, Promise[Rep])]
-        Some(tmp)
-      } else {
-        None
+  var curSize = 0
+
+  def onProduce() {
+    synchronized {
+      curSize += 1
+      if (curSize > size) {
+        state() = Ready
       }
     }
-    oldMaybe foreach { old =>
-      val svc = factory.toService
-      fulfilBatch(svc, old) transform { _ => p }
+  }
+
+  def onConsume() {
+    synchronized {
+      curSize = 0
     }
-    p
   }
 }
-
