@@ -1,4 +1,4 @@
-package com.mosesn.finagle_batching
+package com.mosesn.badgerq
 
 import com.twitter.util.{Extractable, Updatable, Var}
 

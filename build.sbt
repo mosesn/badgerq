@@ -1,4 +1,4 @@
-name := "finagle-batching"
+name := "badgerq"
 
 organization := "com.mosesn"
 

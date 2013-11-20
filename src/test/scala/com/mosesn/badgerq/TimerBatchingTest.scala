@@ -1,4 +1,4 @@
-package com.mosesn.finagle_batching
+package com.mosesn.badgerq
 
 import com.twitter.conversions.time.intToTimeableNumber
 import com.twitter.finagle.{Service, ServiceFactory}
