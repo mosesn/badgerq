@@ -1,41 +1,48 @@
 package com.mosesn.finagle_batching
 
-import com.twitter.finagle.Service
-import com.twitter.util.{Await, Duration, Future, Promise, Time, Timer}
+import com.twitter.finagle.{Service, ServiceFactory}
+import com.twitter.util._
+import scala.collection.immutable.Queue
 
-abstract class BatchingService[Req, Rep](
+class BatchingService[Req, Rep](
   factory: ServiceFactory[Seq[Req], Seq[Rep]],
   disciplines: Seq[QueueingDiscipline]
 ) extends Service[Req, Rep] {
   private[this] var q = Queue.empty[(Req, Promise[Rep])]
   val svc = factory.toService
 
-  val queueState = Var(Pending)
+  val queueState: Var[State] with Updatable[State] with Extractable[State] = Var(Pending)
 
   queueState observe {
-    case Running =>
+    case Running => {
       consume()
       queueState() = Pending
+    }
     case _ =>
   }
 
-  val observations = disciplines yield { discipline =>
+  private[this] val observations = disciplines map { discipline =>
     discipline.state observe { case state =>
       queueState synchronized {
-        state match {
-          case Ready if queueState() == Running =>
-            discipline.state() = Interrupted
-          case Ready =>
-            discipline.state() = Running
-            queueState() = Running
-          case _ =>
-        }
+        transition(state, discipline.state)
+      }
+    }
+  }
+
+  private[this] def transition(state: State, vari: Updatable[State] with Extractable[State]) {
+    if (state == vari() && queueState() != Stopped) { // did another thread win
+      state match {
+        case Ready =>
+          vari() = Running // signals to itself that it won
+          queueState() = Running // should reset itself
+          disciplines foreach { _.state() = Pending }
+        case _ =>
       }
     }
   }
 
   def apply(req: Req): Future[Rep] = {
-    if (stopped) {
+    if (queueState() == Stopped) {
       return Future.exception(new Exception("failed"))
     }
     produce(req)
@@ -51,8 +58,8 @@ abstract class BatchingService[Req, Rep](
   }
 
   override def close(deadline: Time): Future[Unit] = {
-    stopped = true
-    Future.Done
+    queueState() = Stopped // must be synchronized
+    Closable.all(observations: _*).close(deadline)
   }
 
   def consume() {
@@ -63,7 +70,7 @@ abstract class BatchingService[Req, Rep](
   }
 
   def fulfilBatch(pairs: Seq[(Req, Promise[Rep])]): Future[Unit] = {
-    consumeHandlers foreach (_())
+    disciplines foreach { _.onConsume() }
     (svc(pairs map (_._1)) onSuccess { results =>
       if (results.size == pairs.size) {
         results.zip(pairs).map({ case (result, (_, p)) =>
