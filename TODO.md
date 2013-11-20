@@ -9,3 +9,5 @@ testing
   - hammer it a little to try to find a concurrency issue
 README
   - more fleshed out README
+name
+  - still not a good name
