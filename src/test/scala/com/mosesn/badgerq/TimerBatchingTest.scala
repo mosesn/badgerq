@@ -10,7 +10,7 @@ class TimerBatchingTest extends FunSpec with ShouldMatchers {
   trait TimerBatchingHelper {
     val timer = new MockTimer
     val fac = ServiceFactory.const(Service.mk { seq: Seq[Int] => Future.value(seq) })
-    val svc = new BatchingService(fac, Seq(new TimerBatching(1.second, timer)))
+    val svc = new BatchingService(fac, new TimerBatching(1.second, timer))
   }
 
   trait MultiTimerBatchingHelper {
@@ -18,7 +18,7 @@ class TimerBatchingTest extends FunSpec with ShouldMatchers {
     val fac = ServiceFactory.const(Service.mk { seq: Seq[Int] => Future.value(seq) })
     val svc = new BatchingService(
       fac,
-      Seq(new TimerBatching(1.second, timer), new TimerBatching(1.second + 500.milliseconds, timer))
+      new TimerBatching(1.second, timer) or new TimerBatching(1.second + 500.milliseconds, timer)
     )
   }
 

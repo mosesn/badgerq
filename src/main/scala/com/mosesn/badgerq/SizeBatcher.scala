@@ -20,5 +20,9 @@ class SizeBatching(size: Int) extends QueueingDiscipline {
       curSize = 0
     }
   }
-}
 
+  def close(deadline: Time): Future[Unit] = {
+    state() = Stopped
+    Future.Done
+  }
+}
