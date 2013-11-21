@@ -2,11 +2,13 @@ package com.mosesn.badgerq
 
 import com.twitter.finagle.{Service, ServiceFactory}
 import com.twitter.util.{Await, Closable, Duration, Future, Promise, Time, Timer, TimerTask}
+import java.util.concurrent.atomic.AtomicBoolean
 
 class TimerBatching(duration: Duration, timer: Timer) extends QueueingDiscipline {
-  @volatile var task: Option[TimerTask] = None
+  @volatile private[this] var task: Option[TimerTask] = None
+  private[this] val bool = new AtomicBoolean()
 
-  def loop() {
+  private[this] def mkTask() {
     if (state() == Stopped) {
       task = None
     } else {
@@ -16,17 +18,18 @@ class TimerBatching(duration: Duration, timer: Timer) extends QueueingDiscipline
     }
   }
 
-  def onProduce() {}
+  def onProduce() {
+    if (bool.compareAndSet(false, true)) {
+      mkTask()
+    }
+  }
 
-  // FIXME: this is broken until running semantics are OK
   def onConsume() {
     if (!(state() == Running)) {
-      synchronized {
-        task foreach { _.cancel() }
-      }
+      task foreach { _.cancel() }
     }
+    bool.set(false)
     task = None
-    loop()
   }
 
   def close(deadline: Time): Future[Unit] = {
@@ -35,9 +38,4 @@ class TimerBatching(duration: Duration, timer: Timer) extends QueueingDiscipline
     task = None
     Closable.all(prev.toSeq: _*).close(deadline)
   }
-
-  // FIXME: loop should start on production
-  // maybe use an atomic reference around the task?
-  // could also use an atomic boolean if eagerness around the task makes it complicated
-  loop()
 }

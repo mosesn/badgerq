@@ -90,6 +90,30 @@ class TimerBatchingTest extends FunSpec with ShouldMatchers {
       }
     }
 
+    it("should not batch without full time after a production") {
+      new TimerBatchingHelper {
+        Time.withCurrentTimeFrozen { ctl =>
+          ctl.advance(500.milliseconds)
+          val f = svc(0)
+          ctl.advance(500.milliseconds)
+          timer.tick()
+          f should not be ('defined)
+        }
+      }
+    }
+
+    it("should batch with full time after a production") {
+      new TimerBatchingHelper {
+        Time.withCurrentTimeFrozen { ctl =>
+          ctl.advance(500.milliseconds)
+          val f = svc(0)
+          ctl.advance(1.seconds)
+          timer.tick()
+          Await.result(f) should be (0)
+        }
+      }
+    }
+
     it("should only respect the first timeout") {
       new MultiTimerBatchingHelper {
         Time.withCurrentTimeFrozen { ctl =>

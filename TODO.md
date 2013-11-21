@@ -10,7 +10,6 @@ documentation
 name
   - still not a good name
 timed semantics
-  - should not start until after first production
   - currently supports > duration, should support < duration
 asyncsemaphore
   - X concurrent requests
