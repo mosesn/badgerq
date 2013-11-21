@@ -5,13 +5,16 @@ import com.twitter.util.{Future, Extractable, Updatable, Closable, Time}
 class DisjunctiveDiscipline(
   protected[this] val disciplines: Seq[QueueingDiscipline]
 ) extends QueueingDisciplines {
+  @volatile private[this] var initiator: Updatable[State] = null
+
   private[this] val observations: Seq[Closable] = (disciplines map { discipline =>
-    discipline.state observe { case state =>
-      state synchronized {
-        transition(state, discipline.state)
-      }
+    discipline.state observe { case s =>
+      transition(s, discipline.state)
     }
   }) :+ (state observe {
+    case Running => {
+      initiator() = Running
+    }
     case Pending => {
       disciplines foreach { _.state() = Pending }
     }
@@ -19,14 +22,15 @@ class DisjunctiveDiscipline(
   })
 
   private[this] def transition(s: State, vari: Updatable[State] with Extractable[State]) {
-    if (s == vari() && !(state() == Stopped)) { // did another thread win
-      s match {
-        case Ready =>
-          vari() = Running // signals to itself that it won
-          state() = Running // should reset itself
-          disciplines foreach { _.state() = Pending }
-        case _ =>
-      }
+    s match {
+      case Ready =>
+        synchronized {
+          if (!(state() == Ready || state() == Running)) { // did another thread win
+            initiator = vari
+            state() = Ready
+          }
+        }
+      case _ =>
     }
   }
 

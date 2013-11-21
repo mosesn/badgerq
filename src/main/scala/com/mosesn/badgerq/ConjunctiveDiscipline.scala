@@ -17,33 +17,36 @@ class ConjunctiveDiscipline(unrolledDisciplines: Seq[QueueingDiscipline]) extend
     }
   }
 
+  @volatile private[this] var initiator: Updatable[State] = null
+
   private[this] val mask = Long.MinValue >>> (64 - disciplines.size)
   private[this] var bitstring = 0L
 
   // NB: this only works for up to 64, fine because of bundling
-  private[this] val observations: Seq[Closable] = disciplines.zipWithIndex map { case (discipline, idx) =>
+  private[this] val observations = (disciplines.zipWithIndex map { case (discipline, idx) =>
     discipline.state observe {
       case Ready => synchronized {
         bitstring |= (1L << idx)
         if (bitstring == mask) {
+          initiator = discipline.state
           state() = Ready
         }
       }
       case _ => synchronized {
+        // for idempotence, might be able to do better with careful thought
         bitstring &= (-1L - (1L << idx))
       }
     }
-  }
-
-  private[this] val curObservation: Closable = state observe {
+  }) :+ (state observe {
+    case Running => initiator() = Running
     case Pending => {
       disciplines foreach { _.state() = Pending }
     }
     case _ =>
-  }
+  })
 
   def close(deadline: Time): Future[Unit] = {
     state() = Stopped
-    Closable.all(observations ++ disciplines :+ curObservation: _*).close()
+    Closable.all(observations ++ disciplines: _*).close()
   }
 }

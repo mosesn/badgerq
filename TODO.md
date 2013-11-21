@@ -3,8 +3,10 @@ testing
   - hammer it a little to try to find a concurrency issue
   - test conjunctive
   - test disjunctive
-README
+  - test the Running semantics
+documentation
   - more fleshed out README
+  - document the semantics of QueueingDiscipline and BatchingService
 name
   - still not a good name
 timed semantics
@@ -13,6 +15,4 @@ timed semantics
 asyncsemaphore
   - X concurrent requests
 conjunctive discipline
-  - bundling can be more clever
-running semantics
-  - the initiator should get marked Running
+  - bundling can be smarter
