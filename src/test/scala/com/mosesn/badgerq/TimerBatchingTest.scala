@@ -10,7 +10,7 @@ class TimerBatchingTest extends FunSpec with ShouldMatchers {
   trait TimerBatchingHelper {
     val timer = new MockTimer
     val fac = ServiceFactory.const(Service.mk { seq: Seq[Int] => Future.value(seq) })
-    val svc = new BatchingService(fac, Seq(new TimerBatching(1.second, timer)))
+    val svc = new BatchingService(fac, new TimerBatching(1.second, timer))
   }
 
   trait MultiTimerBatchingHelper {
@@ -18,7 +18,7 @@ class TimerBatchingTest extends FunSpec with ShouldMatchers {
     val fac = ServiceFactory.const(Service.mk { seq: Seq[Int] => Future.value(seq) })
     val svc = new BatchingService(
       fac,
-      Seq(new TimerBatching(1.second, timer), new TimerBatching(1.second + 500.milliseconds, timer))
+      new TimerBatching(1.second, timer) or new TimerBatching(1.second + 500.milliseconds, timer)
     )
   }
 
@@ -86,6 +86,30 @@ class TimerBatchingTest extends FunSpec with ShouldMatchers {
           ctl.advance(1.second)
           timer.tick()
           Await.result(f2) should be (0)
+        }
+      }
+    }
+
+    it("should not batch without full time after a production") {
+      new TimerBatchingHelper {
+        Time.withCurrentTimeFrozen { ctl =>
+          ctl.advance(500.milliseconds)
+          val f = svc(0)
+          ctl.advance(500.milliseconds)
+          timer.tick()
+          f should not be ('defined)
+        }
+      }
+    }
+
+    it("should batch with full time after a production") {
+      new TimerBatchingHelper {
+        Time.withCurrentTimeFrozen { ctl =>
+          ctl.advance(500.milliseconds)
+          val f = svc(0)
+          ctl.advance(1.seconds)
+          timer.tick()
+          Await.result(f) should be (0)
         }
       }
     }

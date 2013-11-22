@@ -6,43 +6,23 @@ import scala.collection.immutable.Queue
 
 class BatchingService[Req, Rep](
   factory: ServiceFactory[Seq[Req], Seq[Rep]],
-  disciplines: Seq[QueueingDiscipline]
+  discipline: QueueingDiscipline
 ) extends Service[Req, Rep] {
   private[this] var q = Queue.empty[(Req, Promise[Rep])]
   val svc = factory.toService
 
-  val queueState: Var[State] with Updatable[State] with Extractable[State] = Var(Pending)
-
-  queueState observe {
+  private[this] val observation = discipline.state observe {
+    case Ready =>
+      discipline.state() = Running
     case Running => {
       consume()
-      queueState() = Pending
+      discipline.state() = Pending
     }
     case _ =>
   }
 
-  private[this] val observations = disciplines map { discipline =>
-    discipline.state observe { case state =>
-      queueState synchronized {
-        transition(state, discipline.state)
-      }
-    }
-  }
-
-  private[this] def transition(state: State, vari: Updatable[State] with Extractable[State]) {
-    if (state == vari() && queueState() != Stopped) { // did another thread win
-      state match {
-        case Ready =>
-          vari() = Running // signals to itself that it won
-          queueState() = Running // should reset itself
-          disciplines foreach { _.state() = Pending }
-        case _ =>
-      }
-    }
-  }
-
   def apply(req: Req): Future[Rep] = {
-    if (queueState() == Stopped) {
+    if (discipline.state() == Stopped) {
       return Future.exception(new Exception("failed"))
     }
     produce(req)
@@ -52,14 +32,13 @@ class BatchingService[Req, Rep](
     val p = Promise[Rep]
     synchronized {
       q :+= (req, p)
-      disciplines foreach { _.onProduce() }
+      discipline.onProduce()
     }
     p
   }
 
   override def close(deadline: Time): Future[Unit] = {
-    queueState() = Stopped // must be synchronized
-    Closable.all(observations: _*).close(deadline)
+    Closable.all(discipline, observation).close(deadline)
   }
 
   def consume() {
@@ -70,7 +49,7 @@ class BatchingService[Req, Rep](
   }
 
   def fulfilBatch(pairs: Seq[(Req, Promise[Rep])]): Future[Unit] = {
-    disciplines foreach { _.onConsume() }
+    discipline.onConsume()
     (svc(pairs map (_._1)) onSuccess { results =>
       if (results.size == pairs.size) {
         results.zip(pairs).map({ case (result, (_, p)) =>

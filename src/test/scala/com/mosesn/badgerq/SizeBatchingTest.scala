@@ -8,12 +8,12 @@ import org.scalatest.matchers.ShouldMatchers
 class SizeBatchingTest extends FunSpec with ShouldMatchers {
   trait SizeBatchingHelper {
     val fac = ServiceFactory.const(Service.mk { seq: Seq[Int] => Future.value(seq) })
-    val svc = new BatchingService(fac, Seq(new SizeBatching(2)))
+    val svc = new BatchingService(fac, new SizeBatching(2))
   }
 
   trait MultiSizeBatchingHelper {
     val fac = ServiceFactory.const(Service.mk { seq: Seq[Int] => Future.value(seq) })
-    val svc = new BatchingService(fac, Seq(new SizeBatching(2), new SizeBatching(3)))
+    val svc = new BatchingService(fac, new SizeBatching(2) or new SizeBatching(3))
   }
 
   describe("SizeBatching") {
