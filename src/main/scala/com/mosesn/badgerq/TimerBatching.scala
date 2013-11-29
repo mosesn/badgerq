@@ -18,13 +18,13 @@ class TimerBatching(duration: Duration, timer: Timer) extends QueueingDiscipline
     }
   }
 
-  def onProduce() {
+  def onProduce(f: Future[Unit]) {
     if (bool.compareAndSet(false, true)) {
       mkTask()
     }
   }
 
-  def onConsume() {
+  def onConsume(f: Future[Unit]) {
     if (!(state() == Running)) {
       task foreach { _.cancel() }
     }

@@ -32,7 +32,7 @@ class BatchingService[Req, Rep](
     val p = Promise[Rep]
     synchronized {
       q :+= (req, p)
-      discipline.onProduce()
+      discipline.onProduce(p.unit)
     }
     p
   }
@@ -49,8 +49,9 @@ class BatchingService[Req, Rep](
   }
 
   def fulfilBatch(pairs: Seq[(Req, Promise[Rep])]): Future[Unit] = {
-    discipline.onConsume()
-    (svc(pairs map (_._1)) onSuccess { results =>
+    val p = Promise[Unit]()
+    discipline.onConsume(p)
+    val f = (svc(pairs map (_._1)) onSuccess { results =>
       if (results.size == pairs.size) {
         results.zip(pairs).map({ case (result, (_, p)) =>
           p.setValue(result)
@@ -65,5 +66,7 @@ class BatchingService[Req, Rep](
         p.setException(exc)
       }
     }).unit
+    p.become(f)
+    p
   }
 }

@@ -19,7 +19,7 @@ class ConjunctiveDiscipline(unrolledDisciplines: Seq[QueueingDiscipline]) extend
 
   @volatile private[this] var initiator: Updatable[State] = null
 
-  private[this] val mask = Long.MinValue >>> (64 - disciplines.size)
+  private[this] val mask = -1 >>> (64 - disciplines.size)
   private[this] var bitstring = 0L
 
   // NB: this only works for up to 64, fine because of bundling
@@ -32,9 +32,12 @@ class ConjunctiveDiscipline(unrolledDisciplines: Seq[QueueingDiscipline]) extend
           state() = Ready
         }
       }
-      case _ => synchronized {
+      case cur => synchronized {
         // for idempotence, might be able to do better with careful thought
         bitstring &= (-1L - (1L << idx))
+        if (state() != cur) {
+          state() = cur
+        }
       }
     }
   }) :+ (state observe {

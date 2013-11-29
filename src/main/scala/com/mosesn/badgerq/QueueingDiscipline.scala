@@ -1,6 +1,6 @@
 package com.mosesn.badgerq
 
-import com.twitter.util.{Closable, Extractable, Updatable, Var}
+import com.twitter.util.{Closable, Extractable, Future, Time, Updatable, Var}
 
 trait QueueingDiscipline extends Closable {
   final def or(other: QueueingDiscipline): QueueingDiscipline =
@@ -9,21 +9,35 @@ trait QueueingDiscipline extends Closable {
   final def and(other: QueueingDiscipline): QueueingDiscipline =
     QueueingDiscipline.and(this, other)
 
-  def onConsume()
+  def onConsume(f: Future[Unit])
 
-  def onProduce()
+  def onProduce(f: Future[Unit])
 
   val state: Var[State] with Extractable[State] with Updatable[State] = Var(Pending)
 }
 
-trait QueueingDisciplines extends QueueingDiscipline {
-  protected[this] val disciplines: Seq[QueueingDiscipline]
-  final def onConsume() {
-    disciplines foreach { _.onConsume() }
+class QueueingDisciplineProxy(self: QueueingDiscipline) extends QueueingDiscipline {
+  def onConsume(f: Future[Unit]) {
+    self.onConsume(f)
   }
 
-  final def onProduce() {
-    disciplines foreach { _.onProduce() }
+  def onProduce(f: Future[Unit]) {
+    self.onProduce(f)
+  }
+
+  def close(deadline: Time): Future[Unit] = self.close(deadline)
+
+  override val state: Var[State] with Extractable[State] with Updatable[State] = self.state
+}
+
+trait QueueingDisciplines extends QueueingDiscipline {
+  protected[this] val disciplines: Seq[QueueingDiscipline]
+  final def onConsume(f: Future[Unit]) {
+    disciplines foreach { _.onConsume(f) }
+  }
+
+  final def onProduce(f: Future[Unit]) {
+    disciplines foreach { _.onProduce(f) }
   }
 }
 
