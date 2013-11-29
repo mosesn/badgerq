@@ -9,11 +9,22 @@ trait QueueingDiscipline extends Closable {
   final def and(other: QueueingDiscipline): QueueingDiscipline =
     QueueingDiscipline.and(this, other)
 
+  private[this] lazy val opposite = new NegativeDiscipline(this)
+  final def not: QueueingDiscipline = opposite
+
   def onConsume(f: Future[Unit])
 
   def onProduce(f: Future[Unit])
 
   val state: Var[State] with Extractable[State] with Updatable[State] = Var(Pending)
+}
+
+object QueueingDiscipline {
+  def and(disciplines: QueueingDiscipline*): QueueingDiscipline =
+    new ConjunctiveDiscipline(disciplines)
+
+  def or(disciplines: QueueingDiscipline*): QueueingDiscipline =
+    new DisjunctiveDiscipline(disciplines)
 }
 
 class QueueingDisciplineProxy(self: QueueingDiscipline) extends QueueingDiscipline {
@@ -47,11 +58,3 @@ case object Pending extends State
 case object Ready extends State
 case object Running extends State
 case object Stopped extends State
-
-object QueueingDiscipline {
-  def and(disciplines: QueueingDiscipline*): QueueingDiscipline =
-    new ConjunctiveDiscipline(disciplines)
-
-  def or(disciplines: QueueingDiscipline*): QueueingDiscipline =
-    new DisjunctiveDiscipline(disciplines)
-}
