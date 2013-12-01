@@ -1,6 +1,6 @@
 package com.mosesn.badgerq
 
-import com.mosesn.pennsylvania.State
+import com.mosesn.pennsylvania.{State, Transition}
 import com.twitter.util.{Await, Closable, Extractable, Future, Time, Var}
 
 class ConjunctiveDiscipline(unrolledDisciplines: Seq[QueueingDiscipline]) extends QueueingDisciplines {

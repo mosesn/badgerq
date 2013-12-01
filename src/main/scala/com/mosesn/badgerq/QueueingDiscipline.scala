@@ -1,7 +1,7 @@
 package com.mosesn.badgerq
 
 import com.twitter.util.{Closable, Extractable, Future, Time, Updatable, Var}
-import com.mosesn.pennsylvania.{GoesTo, Rule, State}
+import com.mosesn.pennsylvania.{GoesTo, Rule, StartsAt, State}
 
 trait QueueingDiscipline extends Closable {
   final def or(other: QueueingDiscipline): QueueingDiscipline =
@@ -20,9 +20,8 @@ trait QueueingDiscipline extends Closable {
   val state: State[Status]
 
   def close(deadline: Time): Future[Unit] = {
-    state.send(Stopped) flatMap {
-      case true => Future.Done
-      case false => close(deadline) // TODO: maybe a less shitty spinlock . . .
+    state.send(Stopped) flatMap { _ =>
+      close(deadline)
     }
   }
 }
@@ -65,12 +64,12 @@ trait QueueingDisciplines extends QueueingDiscipline {
 sealed trait Status
 
 object Status {
-  private[this] val rules = Rule.consolidate[Status](Seq(
-    new GoesTo(Set[Status](null), Pending),
-    new GoesTo(Pending, Set[Status](Ready, Stopped)),
-    new GoesTo(Ready, Set[Status](Pending, Running, Stopped)),
-    new GoesTo(Running, Pending)
-  ))
+  val rules = Seq[Rule[Status]](
+    new StartsAt[Status](Pending),
+    new GoesTo[Status](Pending, Set[Status](Ready, Stopped)),
+    new GoesTo[Status](Ready, Set[Status](Pending, Running, Stopped)),
+    new GoesTo[Status](Running, Set[Status](Pending, Stopped))
+  )
 
   def default(): State[Status] = State.mk(rules)
 }
