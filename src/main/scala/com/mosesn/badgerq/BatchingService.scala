@@ -6,23 +6,23 @@ import scala.collection.immutable.Queue
 
 class BatchingService[Req, Rep](
   factory: ServiceFactory[Seq[Req], Seq[Rep]],
-  discipline: QueueingDiscipline
+  underlying: QueueingDiscipline
 ) extends Service[Req, Rep] {
+  val discipline = new RunningDiscipline(underlying)
+
   private[this] var q = Queue.empty[(Req, Promise[Rep])]
   val svc = factory.toService
 
-  private[this] val observation = discipline.state observe {
-    case Ready =>
-      discipline.state() = Running
+  private[this] val observation = discipline.state.state observe {
     case Running => {
       consume()
-      discipline.state() = Pending
+      Await.result(discipline.state.send(Pending))
     }
     case _ =>
   }
 
   def apply(req: Req): Future[Rep] = {
-    if (discipline.state() == Stopped) {
+    if (discipline.state.state() == Stopped) {
       return Future.exception(new Exception("failed"))
     }
     produce(req)
@@ -37,9 +37,8 @@ class BatchingService[Req, Rep](
     p
   }
 
-  override def close(deadline: Time): Future[Unit] = {
+  override def close(deadline: Time): Future[Unit] =
     Closable.all(discipline, observation).close(deadline)
-  }
 
   def consume() {
     synchronized {

@@ -1,7 +1,8 @@
 package com.mosesn.badgerq
 
+import com.mosesn.pennsylvania.State
 import com.twitter.finagle.{Service, ServiceFactory}
-import com.twitter.util.{Duration, Future, Promise, Time, Timer}
+import com.twitter.util.{Await, Duration, Future, Promise, Time, Timer}
 
 class SizeBatching(size: Int) extends QueueingDiscipline {
   private[this] var curSize = 0
@@ -10,7 +11,7 @@ class SizeBatching(size: Int) extends QueueingDiscipline {
     synchronized {
       curSize += 1
       if (curSize >= size) {
-        state() = Ready
+        Await.result(state.send(Ready))
       }
     }
   }
@@ -21,8 +22,5 @@ class SizeBatching(size: Int) extends QueueingDiscipline {
     }
   }
 
-  def close(deadline: Time): Future[Unit] = {
-    state() = Stopped
-    Future.Done
-  }
+  val state: State[Status] = Status.default
 }

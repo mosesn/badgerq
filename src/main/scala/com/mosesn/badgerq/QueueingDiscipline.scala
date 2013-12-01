@@ -1,6 +1,7 @@
 package com.mosesn.badgerq
 
 import com.twitter.util.{Closable, Extractable, Future, Time, Updatable, Var}
+import com.mosesn.pennsylvania.{GoesTo, Rule, State}
 
 trait QueueingDiscipline extends Closable {
   final def or(other: QueueingDiscipline): QueueingDiscipline =
@@ -16,7 +17,14 @@ trait QueueingDiscipline extends Closable {
 
   def onProduce(f: Future[Unit])
 
-  val state: Var[State] with Extractable[State] with Updatable[State] = Var(Pending)
+  val state: State[Status]
+
+  def close(deadline: Time): Future[Unit] = {
+    state.send(Stopped) flatMap {
+      case true => Future.Done
+      case false => close(deadline) // TODO: maybe a less shitty spinlock . . .
+    }
+  }
 }
 
 object QueueingDiscipline {
@@ -36,9 +44,9 @@ class QueueingDisciplineProxy(self: QueueingDiscipline) extends QueueingDiscipli
     self.onProduce(f)
   }
 
-  def close(deadline: Time): Future[Unit] = self.close(deadline)
+  override def close(deadline: Time): Future[Unit] = self.close(deadline)
 
-  override val state: Var[State] with Extractable[State] with Updatable[State] = self.state
+  val state: State[Status] = self.state
 }
 
 trait QueueingDisciplines extends QueueingDiscipline {
@@ -50,11 +58,24 @@ trait QueueingDisciplines extends QueueingDiscipline {
   final def onProduce(f: Future[Unit]) {
     disciplines foreach { _.onProduce(f) }
   }
+
+  val state: State[Status] = Status.default()
 }
 
-sealed trait State
+sealed trait Status
 
-case object Pending extends State
-case object Ready extends State
-case object Running extends State
-case object Stopped extends State
+object Status {
+  private[this] val rules = Rule.consolidate[Status](Seq(
+    new GoesTo(Set[Status](null), Pending),
+    new GoesTo(Pending, Set[Status](Ready, Stopped)),
+    new GoesTo(Ready, Set[Status](Pending, Running, Stopped)),
+    new GoesTo(Running, Pending)
+  ))
+
+  def default(): State[Status] = State.mk(rules)
+}
+
+case object Pending extends Status
+case object Ready extends Status
+case object Running extends Status
+case object Stopped extends Status

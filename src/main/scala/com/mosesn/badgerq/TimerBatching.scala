@@ -1,5 +1,6 @@
 package com.mosesn.badgerq
 
+import com.mosesn.pennsylvania.State
 import com.twitter.finagle.{Service, ServiceFactory}
 import com.twitter.util.{Await, Closable, Duration, Future, Promise, Time, Timer, TimerTask}
 import java.util.concurrent.atomic.AtomicBoolean
@@ -9,11 +10,11 @@ class TimerBatching(duration: Duration, timer: Timer) extends QueueingDiscipline
   private[this] val bool = new AtomicBoolean()
 
   private[this] def mkTask() {
-    if (state() == Stopped) {
+    if (state.state() == Stopped) {
       task = None
     } else {
       task = Some(timer.schedule(duration) {
-        state() = Ready
+        Await.result(state.send(Ready))
       })
     }
   }
@@ -25,15 +26,16 @@ class TimerBatching(duration: Duration, timer: Timer) extends QueueingDiscipline
   }
 
   def onConsume(f: Future[Unit]) {
-    if (!(state() == Running)) {
+    if (!(state.state() == Running)) {
       task foreach { _.cancel() }
     }
     bool.set(false)
     task = None
   }
 
-  def close(deadline: Time): Future[Unit] = {
-    state() = Stopped
+  val state: State[Status] = Status.default
+
+  override def close(deadline: Time): Future[Unit] = super.close(deadline) flatMap { _ =>
     val prev = task
     task = None
     Closable.all(prev.toSeq: _*).close(deadline)

@@ -1,6 +1,6 @@
 package com.mosesn.badgerq
 
-import com.twitter.util.{Future, Time}
+import com.twitter.util.{Await, Future, Time}
 import com.twitter.concurrent.AsyncSemaphore
 
 class RateLimiting(num: Int) extends QueueingDisciplineProxy(
@@ -18,27 +18,24 @@ private[badgerq] class RawRateLimiting(num: Int) extends QueueingDiscipline {
     synchronized {
       cur += 1
       if (cur == num) {
-        state() = Pending
+        Await.result(state.send(Pending))
       }
     }
     f ensure {
       synchronized {
         cur -= 1
-        if (cur < num && state() == Pending) {
-          state() = Ready
+        if (cur < num && state.state() == Pending) {
+          Await.result(state.send(Ready))
         }
       }
     }
   }
 
   def onProduce(f: Future[Unit]) {
-    if (cur < num && state() == Pending) {
-      state() = Ready
+    if (cur < num && state.state() == Pending) {
+      Await.result(state.send(Ready))
     }
   }
 
-  override def close(deadline: Time): Future[Unit] = synchronized {
-    state() = Stopped
-    Future.Done
-  }
+  val state = Status.default
 }

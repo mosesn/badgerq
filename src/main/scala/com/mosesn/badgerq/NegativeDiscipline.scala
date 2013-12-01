@@ -1,6 +1,6 @@
 package com.mosesn.badgerq
 
-import com.twitter.util.{Closable, Future, Time}
+import com.twitter.util.{Await, Closable, Future, Time}
 
 class NegativeDiscipline(underlying: QueueingDiscipline) extends QueueingDiscipline {
   def onConsume(f: Future[Unit]) {
@@ -11,27 +11,25 @@ class NegativeDiscipline(underlying: QueueingDiscipline) extends QueueingDiscipl
     underlying.onProduce(f)
   }
 
-  def close(deadline: Time): Future[Unit] = {
+  override def close(deadline: Time): Future[Unit] = super.close(deadline) flatMap { _ =>
     Closable.all(closables :+ underlying: _*).close(deadline)
   }
 
   val closables = Seq(
-    underlying.state observe {
-      case Ready => if (state() != Ready) {
-        state() = Pending
+    underlying.state.state observe {
+      case Ready => if (state.state() != Pending) {
+        state.send(Pending)
       }
-      case Pending => if (state() != Ready) {
-        state() = Ready
+      case Pending => if (state.state() != Ready) {
+        state.send(Ready)
       }
       case _ =>
     },
-    state observe {
-      case Running => underlying.state() = Running
-      case Stopped => underlying.state() = Stopped
-      case Pending => if (underlying.state() != Ready) {
-        underlying.state() = Ready
-      }
-      case _ =>
+    state.state observe {
+      case Ready =>
+      case status => Await.result(underlying.state.send(Ready))
     }
   )
+
+  val state = Status.default
 }
